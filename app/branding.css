@@ -1,0 +1,56 @@
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.malaysia-flag {
+  display: block;
+  flex: none;
+  filter: drop-shadow(0 1px 3px #0008);
+}
+
+.brand-flag {
+  width: 36px;
+  height: 18px;
+  border: 1px solid #ffffff4d;
+  border-radius: 2px;
+}
+
+.hero-flag {
+  width: 64px;
+  height: 32px;
+  margin: 0 auto 13px;
+  border: 1px solid #ffffff4d;
+  border-radius: 3px;
+}
+
+.feature-flag {
+  width: 56px;
+  height: 28px;
+  border-radius: 3px;
+}
+
+.board-flag {
+  width: 52px;
+  height: 26px;
+  margin: 0 auto 6px;
+  border-radius: 2px;
+}
+
+.footer a {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .brand-flag {
+    width: 30px;
+    height: 15px;
+  }
+
+  .hero-flag {
+    width: 58px;
+    height: 29px;
+  }
+}

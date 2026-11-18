@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { BOARD } from '@/lib/board';
+import MalaysiaFlag from '@/components/MalaysiaFlag';
 
 type Player = { id: string; name: string; avatar: string; cash: number; position: number; is_host: boolean };
 type RoomState = {
@@ -96,7 +97,7 @@ export default function RoomPage() {
     return order.map((boardIndex, gridIndex) => ({ boardIndex, gridIndex, space: byPosition.get(boardIndex)! }));
   }, []);
 
-  if (!state) return <main className="page"><div className="shell"><header className="topbar"><a href="/" className="brand">KAYA <span>CAPITAL</span></a><span className="pill">ROOM {code}</span></header>{needsJoin ? <div className="card loading"><div className="eyebrow">JOIN YOUR GENG</div><h2>Room {code}</h2><p className="muted">Pick a nickname to join this table.</p><label className="label" htmlFor="room-nickname">YOUR NICKNAME</label><input id="room-nickname" className="input" maxLength={18} autoComplete="nickname" value={nickname} onChange={event => setNickname(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && nickname.trim() && !joining) void joinRoom(); }} /><button className="btn primary" disabled={!nickname.trim() || joining} onClick={() => void joinRoom()}>{joining ? 'JOINING…' : 'JOIN ROOM'}</button>{error && <div role="alert" className="error">{error}</div>}</div> : <div className="card loading"><div className="spinner" /><h2>{error ? 'Room connection' : 'Finding your table…'}</h2><p className="muted">{error || 'Connecting securely to the game.'}</p>{error && <a className="btn secondary" href="/">Back to lobby</a>}</div>}</div></main>;
+  if (!state) return <main className="page"><div className="shell"><header className="topbar"><a href="/" className="brand brand-lockup"><MalaysiaFlag className="malaysia-flag brand-flag" />KAYA <span>CAPITAL</span></a><span className="pill">ROOM {code}</span></header>{needsJoin ? <div className="card loading"><div className="eyebrow">JOIN YOUR GENG</div><h2>Room {code}</h2><p className="muted">Pick a nickname to join this table.</p><label className="label" htmlFor="room-nickname">YOUR NICKNAME</label><input id="room-nickname" className="input" maxLength={18} autoComplete="nickname" value={nickname} onChange={event => setNickname(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && nickname.trim() && !joining) void joinRoom(); }} /><button className="btn primary" disabled={!nickname.trim() || joining} onClick={() => void joinRoom()}>{joining ? 'JOINING…' : 'JOIN ROOM'}</button>{error && <div role="alert" className="error">{error}</div>}</div> : <div className="card loading"><div className="spinner" /><h2>{error ? 'Room connection' : 'Finding your table…'}</h2><p className="muted">{error || 'Connecting securely to the game.'}</p>{error && <a className="btn secondary" href="/">Back to lobby</a>}</div>}</div></main>;
 
   const { room, me, players, properties, events, trades } = state;
   const activePlayer = players.find(player => player.id === room.current_player_id);
@@ -110,7 +111,7 @@ export default function RoomPage() {
   const netWorth = (player: Player) => player.cash + properties.filter(property => property.owner_id === player.id).reduce((sum, property) => sum + property.price, 0);
 
   return <main className="page"><div className="shell">
-    <header className="topbar"><a href="/" className="brand">KAYA <span>CAPITAL</span></a><div className="room-heading"><span className="pill">ROOM {room.code}</span>{room.status !== 'lobby' && <span className="pill">ROUND {Math.min(room.round,20)} / 20</span>}</div></header>
+    <header className="topbar"><a href="/" className="brand brand-lockup"><MalaysiaFlag className="malaysia-flag brand-flag" />KAYA <span>CAPITAL</span></a><div className="room-heading"><span className="pill">ROOM {room.code}</span>{room.status !== 'lobby' && <span className="pill">ROUND {Math.min(room.round,20)} / 20</span>}</div></header>
     {room.status === 'completed' && <section className="winner-banner"><div className="winner-crown">🏆</div><div><div className="eyebrow">TAUKE BESAR</div><h1>{winner?.avatar} {winner?.name}</h1><p>Final net worth RM {winner ? netWorth(winner).toLocaleString() : 0}</p></div></section>}
     {room.status === 'lobby' && <section className="lobby-banner card"><div><div className="eyebrow">YOUR TABLE IS READY</div><h1>Room <span>{room.code}</span></h1><p className="muted">Share the invite link or scan the code to bring your geng together.</p>{room.shared_screen && <span className="shared-badge">🖥 Shared-screen play enabled · pass the host device</span>}</div><div className="invite-tools"><div className="qr-card"><QRCodeSVG value={`${origin}/room/${room.code}`} size={104} /></div><button onClick={shareInvite} className="btn secondary">🔗 COPY INVITE LINK</button>{shareMessage && <span className="fine-print">{shareMessage}</span>}</div></section>}
     {room.status === 'lobby' && <section className="card lobby-players"><div className="section-title"><h2>Players</h2><span className="pill">{players.length} / 8</span></div><div className="player-grid">{players.map(player => <div className="lobby-player" key={player.id}><span className="player-avatar">{player.avatar}</span><span>{player.name}{player.id === me.id ? ' (you)' : ''}</span>{player.is_host && <span className="host-label">HOST</span>}</div>)}</div><div className="lobby-footer"><p className="muted">{players.length < 2 ? 'Waiting for one more player to start.' : 'Everyone in? The host can start the game.'}</p>{me.is_host && <button className="btn primary" disabled={players.length < 2 || working} onClick={() => post(`/api/rooms/${code}/start`)}>🎲 START GAME</button>}</div></section>}
@@ -129,7 +130,7 @@ export default function RoomPage() {
             <div className="tokens">{tokens.map(player => <span title={player.name} key={player.id}>{player.avatar}</span>)}</div>
           </div>;
         })}
-        <div className="center"><div><div className="eyebrow">MALAYSIA • MONEY • MAYHEM</div><h2>KAYA <span>CAPITAL</span></h2><p className="muted">Build your kampung,<br />kacau your kawan.</p><div className="center-round">ROUND {Math.min(room.round,20)} / 20</div></div></div>
+        <div className="center"><div><MalaysiaFlag className="malaysia-flag board-flag" /><div className="eyebrow">MALAYSIA • MONEY • MAYHEM</div><h2>KAYA <span>CAPITAL</span></h2><p className="muted">Build your kampung,<br />kacau your kawan.</p><div className="center-round">ROUND {Math.min(room.round,20)} / 20</div></div></div>
       </section>
       <aside className="sidebar">
         <section className="card turn-card"><div className="section-title"><span className="eyebrow">{room.status === 'completed' ? 'MATCH COMPLETE' : 'CURRENT TURN'}</span><span className="turn-dot" /></div><h2>{activePlayer ? `${activePlayer.avatar} ${activePlayer.name}` : 'Final standings'}</h2>{activePlayer && <p className="muted">{isTurn ? 'Your turn — make it count.' : 'Taking their turn…'}</p>}
@@ -148,5 +149,6 @@ export default function RoomPage() {
       </aside>
     </div>}
     {error && <div role="alert" className="toast-error">{error}<button onClick={() => setError('')} aria-label="Dismiss error">×</button></div>}
+    <footer className="footer">Produced by <a href="https://github.com/garethltm" target="_blank" rel="noopener noreferrer">@garethltm</a></footer>
   </div></main>;
 }

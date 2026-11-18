@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import MalaysiaFlag from '@/components/MalaysiaFlag';
 
 const avatars = ['🧑‍💼', '🏍️', '🍜', '🦎', '🐯', '🧋', '🧑‍🎓', '🦜'];
 
@@ -26,8 +27,9 @@ export default function Home() {
   }
 
   return <main className="page"><div className="shell">
-    <header className="topbar"><a href="/" className="brand">KAYA <span>CAPITAL</span></a><span className="pill">A MALAYSIAN PARTY GAME</span></header>
+    <header className="topbar"><a href="/" className="brand brand-lockup"><MalaysiaFlag className="malaysia-flag brand-flag" />KAYA <span>CAPITAL</span></a><span className="pill">A MALAYSIAN PARTY GAME</span></header>
     <section className="hero">
+      <MalaysiaFlag className="malaysia-flag hero-flag" />
       <div className="eyebrow">🎲 &nbsp; GATHER YOUR GENG</div>
       <h1>Build your <span>kampung,</span><br />kacau your kawan.</h1>
       <p>Buy iconic places, make questionable deals and ride out the chaos. Highest net worth after 20 rounds becomes Tauke Besar.</p>
@@ -46,10 +48,10 @@ export default function Home() {
       <p className="fine-print">2–8 players · Invite your friends · No real money, just bragging rights</p>
     </section>
     <section className="grid features">
-      <article className="card feature"><div className="feature-icon">🇲🇾</div><h3>From pasar malam to KLCC</h3><p className="muted">A fresh board inspired by the places, food and everyday surprises of Malaysia.</p></article>
+      <article className="card feature"><div className="feature-icon"><MalaysiaFlag className="malaysia-flag feature-flag" /></div><h3>From pasar malam to KLCC</h3><p className="muted">A fresh board inspired by the places, food and everyday surprises of Malaysia.</p></article>
       <article className="card feature"><div className="feature-icon">⚡</div><h3>Twenty rounds. Big decisions.</h3><p className="muted">Quick turns, shifting fortunes and a proper finish. No endless board-game night.</p></article>
       <article className="card feature"><div className="feature-icon">🤝</div><h3>Negotiate. Then kacau.</h3><p className="muted">Swap property, make deals and see who comes out on top.</p></article>
     </section>
-    <footer className="footer">Built for phones around a table and big screens across the room.</footer>
+    <footer className="footer">Produced by <a href="https://github.com/garethltm" target="_blank" rel="noopener noreferrer">@garethltm</a> · Built for phones around a table and big screens across the room.</footer>
   </div></main>;
 }

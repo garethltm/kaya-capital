@@ -1,6 +1,6 @@
 # 🇲🇾 Kaya Capital
 
-**Build your kampung, kacau your kawan.** A Malaysia-themed online party property game for 2–8 players. Play from individual phones or enable shared-screen mode to pass one device around. Original game rules, locations and events; no real-money wagering.
+**Produced by [@garethltm](https://github.com/garethltm).** **Build your kampung, kacau your kawan.** A Malaysia-themed online party property game for 2–8 players. Play from individual phones or enable shared-screen mode to pass one device around. Original game rules, locations and events; no real-money wagering.
 
 ## Run locally
 
