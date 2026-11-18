@@ -14,7 +14,7 @@ export function sessionCookie(code: string) {
 export function apiError(error: unknown, fallback = 'Something went wrong') {
   const message = error instanceof Error ? error.message : fallback;
   const status = /not found|no open room/i.test(message) ? 404
-    : /full|at least two|nickname/i.test(message) ? 400
-      : /turn|host|invalid|already|not enough|available|buy or skip|in progress|own|offered/i.test(message) ? 403 : 500;
+    : /full|at least two|nickname|password between/i.test(message) ? 400
+      : /turn|host|invalid|already|not enough|available|buy or skip|in progress|own|offered|incorrect room password|recovery details|not active/i.test(message) ? 403 : 500;
   return Response.json({ error: message || fallback }, { status });
 }

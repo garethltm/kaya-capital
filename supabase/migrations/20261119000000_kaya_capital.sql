@@ -7,6 +7,7 @@ create table if not exists public.rooms (
   status text not null default 'lobby' check (status in ('lobby','playing','completed')),
   is_public boolean not null default false,
   shared_screen boolean not null default false,
+  password_hash text,
   host_player_id uuid,
   current_player_id uuid,
   pending_board_index int,
@@ -25,7 +26,9 @@ create table if not exists public.players (
   position int not null default 0 check (position between 0 and 24),
   is_host boolean not null default false,
   ready boolean not null default true,
+  status text not null default 'active' check (status in ('active','conceded')),
   session_hash text not null,
+  recovery_hash text,
   joined_at timestamptz not null default now(),
   unique(room_id,id)
 );
@@ -58,13 +61,18 @@ create table if not exists public.trades (
 -- Upgrade in-place installations of the original prototype schema.
 alter table public.rooms add column if not exists is_public boolean not null default false;
 alter table public.rooms add column if not exists shared_screen boolean not null default false;
+alter table public.rooms add column if not exists password_hash text;
 alter table public.rooms add column if not exists host_player_id uuid;
 alter table public.rooms add column if not exists pending_board_index int;
 alter table public.rooms add column if not exists turn_rolled boolean not null default false;
 alter table public.rooms add column if not exists winner_player_id uuid;
 alter table public.rooms add column if not exists updated_at timestamptz not null default now();
 alter table public.players add column if not exists ready boolean not null default true;
+alter table public.players add column if not exists status text not null default 'active';
+alter table public.players add column if not exists recovery_hash text;
 alter table public.players add column if not exists session_hash text;
+alter table public.players drop constraint if exists players_status_check;
+alter table public.players add constraint players_status_check check (status in ('active','conceded'));
 update public.players set session_hash=encode(digest(gen_random_bytes(32),'sha256'),'hex') where session_hash is null;
 alter table public.players alter column session_hash set not null;
 alter table public.properties add column if not exists group_name text;
@@ -83,33 +91,52 @@ alter table public.trades enable row level security;
 revoke all on public.rooms,public.players,public.properties,public.game_events,public.trades from public,anon,authenticated;
 grant select on public.rooms,public.players,public.properties,public.game_events,public.trades to service_role;
 
-create or replace function public.kc_create_room(p_name text,p_avatar text,p_public boolean default false,p_shared boolean default false)
+drop function if exists public.kc_create_room(text,text,boolean,boolean);
+drop function if exists public.kc_join_room(text,text,text,boolean);
+
+create or replace function public.kc_create_room(p_name text,p_avatar text,p_public boolean default false,p_shared boolean default false,p_password text default null)
 returns jsonb language plpgsql security definer set search_path=public,extensions as $$
-declare v_code text; v_room uuid; v_player uuid:=gen_random_uuid(); v_token text:=encode(gen_random_bytes(24),'hex');
+declare v_code text; v_room uuid; v_player uuid:=gen_random_uuid(); v_token text:=encode(gen_random_bytes(24),'hex'); v_recovery_code text:=encode(gen_random_bytes(12),'hex'); v_password_hash text;
 begin
  if length(trim(p_name)) not between 1 and 18 then raise exception 'Nickname must be 1–18 characters'; end if;
+ if not p_public and (length(trim(coalesce(p_password,'')))<8 or octet_length(p_password)>72) then raise exception 'Private rooms need a password between 8 and 72 characters'; end if;
+ if not p_public then v_password_hash:=crypt(trim(p_password),gen_salt('bf')); end if;
  loop
    v_code:=upper(substr(encode(gen_random_bytes(5),'hex'),1,6));
    exit when not exists(select 1 from rooms where code=v_code);
  end loop;
- insert into rooms(code,is_public,shared_screen) values(v_code,p_public,p_shared) returning id into v_room;
- insert into players(id,room_id,name,avatar,is_host,session_hash) values(v_player,v_room,trim(p_name),coalesce(nullif(p_avatar,''),'🧑‍💼'),true,encode(digest(v_token,'sha256'),'hex'));
+ insert into rooms(code,is_public,shared_screen,password_hash) values(v_code,p_public,p_shared,v_password_hash) returning id into v_room;
+ insert into players(id,room_id,name,avatar,is_host,session_hash,recovery_hash,status) values(v_player,v_room,trim(p_name),coalesce(nullif(p_avatar,''),'🧑‍💼'),true,encode(digest(v_token,'sha256'),'hex'),encode(digest(lower(v_recovery_code),'sha256'),'hex'),'active');
  update rooms set host_player_id=v_player where id=v_room;
- return jsonb_build_object('code',v_code,'playerId',v_player,'token',v_token);
+ return jsonb_build_object('code',v_code,'playerId',v_player,'token',v_token,'recoveryCode',v_recovery_code);
 end $$;
 
-create or replace function public.kc_join_room(p_code text,p_name text,p_avatar text,p_public_only boolean default false)
+create or replace function public.kc_join_room(p_code text,p_name text,p_avatar text,p_public_only boolean default false,p_password text default null)
 returns jsonb language plpgsql security definer set search_path=public,extensions as $$
-declare r rooms%rowtype; v_player uuid:=gen_random_uuid(); v_token text:=encode(gen_random_bytes(24),'hex');
+declare r rooms%rowtype; v_player uuid:=gen_random_uuid(); v_token text:=encode(gen_random_bytes(24),'hex'); v_recovery_code text:=encode(gen_random_bytes(12),'hex');
 begin
  if length(trim(p_name)) not between 1 and 18 then raise exception 'Nickname must be 1–18 characters'; end if;
  select * into r from rooms where (code=upper(trim(p_code)) or (p_public_only and is_public and status='lobby'))
    and status='lobby' and (not p_public_only or (is_public and (select count(*) from players pl where pl.room_id=rooms.id)<8)) order by created_at limit 1 for update;
  if not found then raise exception 'No open room found'; end if;
  if (select count(*) from players where room_id=r.id)>=8 then raise exception 'This room is full'; end if;
- insert into players(id,room_id,name,avatar,session_hash) values(v_player,r.id,trim(p_name),coalesce(nullif(p_avatar,''),'🧑‍💼'),encode(digest(v_token,'sha256'),'hex'));
+ if not r.is_public and (r.password_hash is null or length(trim(coalesce(p_password,'')))=0 or crypt(trim(p_password),r.password_hash)<>r.password_hash) then raise exception 'Incorrect room password'; end if;
+ insert into players(id,room_id,name,avatar,session_hash,recovery_hash,status) values(v_player,r.id,trim(p_name),coalesce(nullif(p_avatar,''),'🧑‍💼'),encode(digest(v_token,'sha256'),'hex'),encode(digest(lower(v_recovery_code),'sha256'),'hex'),'active');
  insert into game_events(room_id,player_id,event_type,payload) values(r.id,v_player,'joined',jsonb_build_object('name',trim(p_name)));
- return jsonb_build_object('code',r.code,'playerId',v_player,'token',v_token);
+ return jsonb_build_object('code',r.code,'playerId',v_player,'token',v_token,'recoveryCode',v_recovery_code);
+end $$;
+
+create or replace function public.kc_recover_player(p_code text,p_name text,p_password text,p_recovery_code text)
+returns jsonb language plpgsql security definer set search_path=public,extensions as $$
+declare r rooms%rowtype; p players%rowtype; v_token text:=encode(gen_random_bytes(24),'hex');
+begin
+ select * into r from rooms where code=upper(trim(p_code)) for update;
+ if not found then raise exception 'Room not found'; end if;
+ if not r.is_public and (r.password_hash is null or length(trim(coalesce(p_password,'')))=0 or crypt(trim(p_password),r.password_hash)<>r.password_hash) then raise exception 'Incorrect room password'; end if;
+ select * into p from players where room_id=r.id and lower(name)=lower(trim(p_name)) and recovery_hash=encode(digest(lower(trim(coalesce(p_recovery_code,''))),'sha256'),'hex') for update;
+ if not found then raise exception 'Player recovery details did not match'; end if;
+ update players set session_hash=encode(digest(v_token,'sha256'),'hex') where id=p.id;
+ return jsonb_build_object('code',r.code,'playerId',p.id,'token',v_token,'recoveryCode',lower(trim(p_recovery_code)));
 end $$;
 
 create or replace function public.kc_start(p_code text,p_token text)
@@ -119,10 +146,10 @@ begin
  select * into r from rooms where code=upper(trim(p_code)) for update;
  if not found then raise exception 'Room not found'; end if;
  if not exists(select 1 from players where id=r.host_player_id and room_id=r.id and session_hash=encode(digest(p_token,'sha256'),'hex')) then raise exception 'Only the host can start'; end if;
- select count(*) into v_count from players where room_id=r.id;
+ select count(*) into v_count from players where room_id=r.id and status='active';
  if v_count<2 then raise exception 'At least two players are needed'; end if;
  if r.status<>'lobby' then raise exception 'Game already started'; end if;
- update rooms set status='playing',round=1,turn_rolled=false,current_player_id=(select id from players where room_id=r.id order by joined_at,id limit 1),updated_at=now() where id=r.id;
+ update rooms set status='playing',round=1,turn_rolled=false,current_player_id=(select id from players where room_id=r.id and status='active' order by joined_at,id limit 1),updated_at=now() where id=r.id;
  insert into game_events(room_id,event_type,payload) values(r.id,'started',jsonb_build_object('round',1));
  return jsonb_build_object('ok',true);
 end $$;
@@ -135,8 +162,10 @@ begin
  if not found or r.status<>'playing' then raise exception 'Game is not in progress'; end if;
  select * into actor from players where room_id=r.id and session_hash=encode(digest(p_token,'sha256'),'hex');
  if not found then raise exception 'Invalid room session'; end if;
+ if actor.status<>'active' and not (r.shared_screen and actor.id=r.host_player_id) then raise exception 'Player is not active'; end if;
  if actor.id<>r.current_player_id and not (r.shared_screen and actor.id=r.host_player_id) then raise exception 'It is not your turn'; end if;
- select * into p from players where id=r.current_player_id and room_id=r.id;
+ select * into p from players where id=r.current_player_id and room_id=r.id and status='active';
+ if not found then raise exception 'Current player is not active'; end if;
  if p_action='roll' then
    if r.turn_rolled then raise exception 'You have already rolled this turn'; end if;
    if r.pending_board_index is not null then raise exception 'Resolve your current space first'; end if;
@@ -183,12 +212,12 @@ begin
  elsif p_action in ('end_turn','skip') then
    if not r.turn_rolled then raise exception 'Roll before ending your turn'; end if;
    if r.pending_board_index is not null and p_action='end_turn' then raise exception 'Buy or skip the available property first'; end if;
-   select id into v_winner from players where room_id=r.id and (joined_at,id)>(p.joined_at,p.id) order by joined_at,id limit 1;
+   select id into v_winner from players where room_id=r.id and status='active' and (joined_at,id)>(p.joined_at,p.id) order by joined_at,id limit 1;
    if v_winner is null then
-     select id into v_winner from players where room_id=r.id order by joined_at,id limit 1;
+     select id into v_winner from players where room_id=r.id and status='active' order by joined_at,id limit 1;
      v_round:=r.round+1;
      if v_round>20 then
-       select pl.id into v_winner from players pl left join (select owner_id,sum(price) value from properties where room_id=r.id group by owner_id) pr on pr.owner_id=pl.id where pl.room_id=r.id order by pl.cash+coalesce(pr.value,0) desc,pl.joined_at,pl.id limit 1;
+       select pl.id into v_winner from players pl left join (select owner_id,sum(price) value from properties where room_id=r.id group by owner_id) pr on pr.owner_id=pl.id where pl.room_id=r.id and pl.status='active' order by pl.cash+coalesce(pr.value,0) desc,pl.joined_at,pl.id limit 1;
        update rooms set status='completed',winner_player_id=v_winner,current_player_id=null,round=20,turn_rolled=false,updated_at=now() where id=r.id;
        insert into game_events(room_id,player_id,event_type,payload) values(r.id,v_winner,'completed',jsonb_build_object('winnerId',v_winner));
      else update rooms set current_player_id=v_winner,round=v_round,turn_rolled=false,updated_at=now() where id=r.id; end if;
@@ -196,6 +225,49 @@ begin
    update rooms set pending_board_index=null where id=r.id;
    insert into game_events(room_id,player_id,event_type,payload) values(r.id,p.id,'turn_ended',jsonb_build_object('round',r.round));
  else raise exception 'Unknown game action'; end if;
+ return jsonb_build_object('ok',true);
+end $$;
+
+create or replace function public.kc_concede(p_code text,p_token text)
+returns jsonb language plpgsql security definer set search_path=public,extensions as $$
+declare r rooms%rowtype; actor players%rowtype; p players%rowtype; v_next uuid; v_winner uuid; v_active_count int; v_was_current boolean;
+begin
+ select * into r from rooms where code=upper(trim(p_code)) for update;
+ if not found or r.status<>'playing' then raise exception 'Game is not in progress'; end if;
+ select * into actor from players where room_id=r.id and session_hash=encode(digest(p_token,'sha256'),'hex');
+ if not found then raise exception 'Invalid room session'; end if;
+ if r.shared_screen and actor.id=r.host_player_id then
+   select * into p from players where id=r.current_player_id and room_id=r.id and status='active' for update;
+ else p:=actor; end if;
+ if p.id is null or p.status<>'active' then raise exception 'Player is not active'; end if;
+ v_was_current:=p.id=r.current_player_id;
+ update players set status='conceded',cash=0 where id=p.id;
+ update properties set owner_id=null where room_id=r.id and owner_id=p.id;
+ update trades set status='declined' where room_id=r.id and status='pending' and (from_player=p.id or to_player=p.id);
+ insert into game_events(room_id,player_id,event_type,payload) values(r.id,p.id,'conceded',jsonb_build_object('name',p.name,'message',p.name||' conceded and returned their properties to the bank.'));
+ select count(*) into v_active_count from players where room_id=r.id and status='active';
+ if v_active_count<=1 then
+   select pl.id into v_winner from players pl left join (select owner_id,sum(price) value from properties where room_id=r.id group by owner_id) pr on pr.owner_id=pl.id where pl.room_id=r.id and pl.status='active' order by pl.cash+coalesce(pr.value,0) desc,pl.joined_at,pl.id limit 1;
+   update rooms set status='completed',winner_player_id=v_winner,current_player_id=null,pending_board_index=null,turn_rolled=false,updated_at=now() where id=r.id;
+   insert into game_events(room_id,player_id,event_type,payload) values(r.id,v_winner,'completed',jsonb_build_object('winnerId',v_winner,'message',case when v_winner is null then 'All players conceded.' else 'One player remains and wins the match.' end));
+ elsif v_was_current then
+   select id into v_next from players where room_id=r.id and status='active' and (joined_at,id)>(p.joined_at,p.id) order by joined_at,id limit 1;
+   if v_next is null then select id into v_next from players where room_id=r.id and status='active' order by joined_at,id limit 1; end if;
+   update rooms set current_player_id=v_next,pending_board_index=null,turn_rolled=false,updated_at=now() where id=r.id;
+ end if;
+ return jsonb_build_object('ok',true);
+end $$;
+
+create or replace function public.kc_end_game(p_code text,p_token text)
+returns jsonb language plpgsql security definer set search_path=public,extensions as $$
+declare r rooms%rowtype; v_winner uuid;
+begin
+ select * into r from rooms where code=upper(trim(p_code)) for update;
+ if not found or r.status<>'playing' then raise exception 'Game is not in progress'; end if;
+ if not exists(select 1 from players where id=r.host_player_id and room_id=r.id and session_hash=encode(digest(p_token,'sha256'),'hex')) then raise exception 'Only the host can end the game'; end if;
+ select pl.id into v_winner from players pl left join (select owner_id,sum(price) value from properties where room_id=r.id group by owner_id) pr on pr.owner_id=pl.id where pl.room_id=r.id and pl.status='active' order by pl.cash+coalesce(pr.value,0) desc,pl.joined_at,pl.id limit 1;
+ update rooms set status='completed',winner_player_id=v_winner,current_player_id=null,pending_board_index=null,turn_rolled=false,updated_at=now() where id=r.id;
+ insert into game_events(room_id,player_id,event_type,payload) values(r.id,v_winner,'completed',jsonb_build_object('winnerId',v_winner,'message','The host ended the match early.'));
  return jsonb_build_object('ok',true);
 end $$;
 
@@ -208,15 +280,17 @@ begin
  select * into actor from players where room_id=r.id and session_hash=encode(digest(p_token,'sha256'),'hex');
  if not found then raise exception 'Invalid room session'; end if;
  if r.shared_screen and actor.id=r.host_player_id then
-   select * into p from players where id=r.current_player_id and room_id=r.id;
+   select * into p from players where id=r.current_player_id and room_id=r.id and status='active';
  else p:=actor; end if;
- if p_target=p.id or not exists(select 1 from players where id=p_target and room_id=r.id) then raise exception 'Invalid trade partner'; end if;
+ if p.id is null or p.status<>'active' then raise exception 'Player is not active'; end if;
+ if p_target=p.id or not exists(select 1 from players where id=p_target and room_id=r.id and status='active') then raise exception 'Invalid trade partner'; end if;
  if p_accept then
    select * into tr from trades where id=(p_offer->>'tradeId')::uuid and room_id=r.id and to_player=p.id and status='pending' for update;
    if not found then raise exception 'Trade offer is no longer available'; end if;
    v_cash:=coalesce((tr.offer->>'cash')::int,0); v_property:=coalesce((tr.offer->>'propertyIndex')::int,-1);
    v_request_cash:=coalesce((tr.offer->>'requestCash')::int,0); v_request_property:=coalesce((tr.offer->>'requestPropertyIndex')::int,-1);
-   select * into q from players where id=tr.from_player;
+   select * into q from players where id=tr.from_player and status='active';
+   if not found then raise exception 'Trade offerer is no longer active'; end if;
    if v_cash<0 or q.cash<v_cash then raise exception 'Offerer no longer has the offered cash'; end if;
    if v_property>=0 and not exists(select 1 from properties where room_id=r.id and board_index=v_property and owner_id=q.id) then raise exception 'Offered property is no longer owned'; end if;
    if v_request_cash<0 or p.cash<v_request_cash then raise exception 'You no longer have enough cash for this trade'; end if;
@@ -232,12 +306,12 @@ begin
    v_request_cash:=coalesce((p_offer->>'requestCash')::int,0); v_request_property:=coalesce((p_offer->>'requestPropertyIndex')::int,-1);
    if v_cash<0 or p.cash<v_cash then raise exception 'You cannot offer more cash than you have'; end if;
    if v_property>=0 and not exists(select 1 from properties where room_id=r.id and board_index=v_property and owner_id=p.id) then raise exception 'You do not own that property'; end if;
-   if v_request_cash<0 or not exists(select 1 from players where id=p_target and room_id=r.id and cash>=v_request_cash) then raise exception 'Your trade partner cannot cover the requested cash'; end if;
+   if v_request_cash<0 or not exists(select 1 from players where id=p_target and room_id=r.id and status='active' and cash>=v_request_cash) then raise exception 'Your trade partner cannot cover the requested cash'; end if;
    if v_request_property>=0 and not exists(select 1 from properties where room_id=r.id and board_index=v_request_property and owner_id=p_target) then raise exception 'Your trade partner does not own the requested property'; end if;
    insert into trades(room_id,from_player,to_player,offer) values(r.id,p.id,p_target,p_offer) returning * into tr;
    insert into game_events(room_id,player_id,event_type,payload) values(r.id,p.id,'trade_offer',jsonb_build_object('to',p_target));
  end if;
  return jsonb_build_object('ok',true);
 end $$;
-revoke all on function public.kc_create_room(text,text,boolean,boolean),public.kc_join_room(text,text,text,boolean),public.kc_start(text,text),public.kc_action(text,text,text),public.kc_trade(text,text,uuid,jsonb,boolean) from public,anon,authenticated;
-grant execute on function public.kc_create_room(text,text,boolean,boolean),public.kc_join_room(text,text,text,boolean),public.kc_start(text,text),public.kc_action(text,text,text),public.kc_trade(text,text,uuid,jsonb,boolean) to service_role;
+revoke all on function public.kc_create_room(text,text,boolean,boolean,text),public.kc_join_room(text,text,text,boolean,text),public.kc_recover_player(text,text,text,text),public.kc_start(text,text),public.kc_action(text,text,text),public.kc_concede(text,text),public.kc_end_game(text,text),public.kc_trade(text,text,uuid,jsonb,boolean) from public,anon,authenticated;
+grant execute on function public.kc_create_room(text,text,boolean,boolean,text),public.kc_join_room(text,text,text,boolean,text),public.kc_recover_player(text,text,text,text),public.kc_start(text,text),public.kc_action(text,text,text),public.kc_concede(text,text),public.kc_end_game(text,text),public.kc_trade(text,text,uuid,jsonb,boolean) to service_role;
