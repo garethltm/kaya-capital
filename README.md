@@ -1,30 +1,26 @@
 # 🇲🇾 Kaya Capital
 
-A Malaysian-themed digital party board game inspired by the room/lobby model of outLIAR. This repository is a **general game-layout starter**: it contains the UI direction, board model, room route, Supabase schema and project structure so the game engine can be built on top.
-
-## Stack
-- Next.js + React + TypeScript
-- Supabase (planned realtime game state/database)
-- Vercel deployment
+**Build your kampung, kacau your kawan.** A Malaysia-themed online party property game for 2–8 players. Play from individual phones or enable shared-screen mode to pass one device around. Original game rules, locations and events; no real-money wagering.
 
 ## Run locally
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
 
-Open `http://localhost:3000`.
+1. Install Node.js 20+ and a Supabase project.
+2. Copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Keep the service-role key server-only; never use a `NEXT_PUBLIC_` prefix for it.
+3. Run `supabase/schema.sql` in the Supabase SQL editor as project owner. The schema enables RLS, grants no direct client table access, and exposes only validated RPCs to the server's service role.
+4. Run `npm install` then `npm run dev`, and open `http://localhost:3000`.
 
-## Deploy to GitHub / Vercel
-1. Create a new GitHub repository.
-2. Upload/push this folder.
-3. Import the repository into Vercel.
-4. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-5. Run `supabase/schema.sql` in the Supabase SQL editor.
+The Supabase anon key is not used by the current server-mediated API; it remains in `.env.example` for future client-side Realtime integration. Room state is refreshed through the authenticated same-origin API. A room session token is HttpOnly, stored as a SHA-256 digest in the database, and all trusted game actions execute in database transactions.
 
-## Planned game flow
-Create room → Lobby → QR/code join → Host starts → Turn → Roll → Resolve space → Buy/pay/event/trade → Next player → Round 20 → Final wealth calculation.
+## Game flow
 
-## Important next implementation
-The demo currently uses local React state for the dice/board. Replace this with server-authoritative Supabase game actions before multiplayer release. The client should never be allowed to directly decide cash, property ownership, turn order or game results.
+Create a private room and share its invite link/QR or code, or host/join a public lobby. The host starts with at least two players. On each turn, the server rolls the die, updates movement, resolves event spaces/rent and allows a property purchase. Players can offer cash/property trades. The match ends after 20 rounds and ranks cash plus owned property values.
+
+## Security notes
+
+- Never put `SUPABASE_SERVICE_ROLE_KEY` in browser code or deploy it as a public environment variable.
+- RLS is enabled on all game tables and anon/authenticated direct access is revoked. API reads require a room session; RPCs validate room membership, host authority, turn order, available cash, ownership and game phase.
+- The database RPCs are the sole authority for dice, movement, balances, property ownership, round advancement and winner selection.
+
+## Deploy
+
+Deploy the Next.js app to Vercel and configure the two required server environment values. Apply schema changes before shipping the app. No Azure resources are required.

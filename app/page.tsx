@@ -1,4 +1,55 @@
 'use client';
-import {useState} from 'react';
-const features=[['🇲🇾','Malaysia, but chaotic','Local landmarks, food, events and inside jokes.'],['🎲','Fast party rounds','Designed for roughly 20–30 minutes instead of endless Monopoly sessions.'],['🐍','Kacau your friends','Trade, sabotage, negotiate and steal the lead at any moment.']];
-export default function Home(){const[code,setCode]=useState('');return <main className="page"><div className="shell"><header className="topbar"><div className="brand">KAYA <span>CAPITAL</span></div><div className="pill">MALAYSIAN PARTY GAME</div></header><section className="hero"><h1>Build your <span>empire.</span><br/>Kacau your friends.</h1><p>A fast, social Malaysian property party game. Create a room, scan the QR code, grab your phone and fight to become the Tauke Besar.</p><div className="actions"><a className="btn primary" href="/room/demo">CREATE ROOM</a><div style={{display:'flex',gap:8}}><input className="input" style={{width:150}} value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="ROOM CODE"/><a className="btn secondary" href={code?`/room/${code}`:'#'}>JOIN</a></div></div></section><section className="grid features">{features.map(([icon,title,desc])=><div className="card feature" key={title}><div style={{fontSize:30}}>{icon}</div><h3>{title}</h3><div className="muted">{desc}</div></div>)}</section><div className="footer">Prototype architecture for Next.js + Supabase + Vercel · Built for extension from the outLIAR-style room model.</div></div></main>}
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+const avatars = ['🧑‍💼', '🏍️', '🍜', '🦎', '🐯', '🧋', '🧑‍🎓', '🦜'];
+
+export default function Home() {
+  const router = useRouter();
+  const [name, setName] = useState('');
+  const [avatar, setAvatar] = useState(avatars[0]);
+  const [code, setCode] = useState('');
+  const [sharedScreen, setSharedScreen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(kind: 'create' | 'join' | 'public' | 'hostPublic') {
+    setBusy(true); setError('');
+    try {
+      const endpoint = kind === 'create' || kind === 'hostPublic' ? '/api/rooms' : kind === 'join' ? '/api/rooms/join' : '/api/matchmaking';
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, avatar, code: code.trim().toUpperCase(), public: kind === 'hostPublic', shared: sharedScreen }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not join right now.');
+      router.push(`/room/${result.code}`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Something went wrong.'); }
+    finally { setBusy(false); }
+  }
+
+  return <main className="page"><div className="shell">
+    <header className="topbar"><a href="/" className="brand">KAYA <span>CAPITAL</span></a><span className="pill">A MALAYSIAN PARTY GAME</span></header>
+    <section className="hero">
+      <div className="eyebrow">🎲 &nbsp; GATHER YOUR GENG</div>
+      <h1>Build your <span>kampung,</span><br />kacau your kawan.</h1>
+      <p>Buy iconic places, make questionable deals and ride out the chaos. Highest net worth after 20 rounds becomes Tauke Besar.</p>
+    </section>
+    <section className="lobby-form card">
+      <div><label className="label" htmlFor="nickname">YOUR NICKNAME</label><input id="nickname" className="input" maxLength={18} placeholder="e.g. Teh Tarik Tycoon" value={name} onChange={event => setName(event.target.value)} /></div>
+      <div><span className="label">PICK YOUR AVATAR</span><div className="avatars">{avatars.map(item => <button type="button" aria-label={`Choose ${item}`} aria-pressed={avatar === item} className={`avatar ${avatar === item ? 'selected' : ''}`} onClick={() => setAvatar(item)} key={item}>{item}</button>)}</div></div>
+      <label className="shared-choice"><input type="checkbox" checked={sharedScreen} onChange={event => setSharedScreen(event.target.checked)} /><span><b>Play together on this screen</b><small>Pass one device around; the host can take each turn.</small></span></label>
+      <div className="room-actions">
+        <button className="btn primary" disabled={!name.trim() || busy} onClick={() => submit('create')}>{busy ? 'ONE SEC…' : '＋ CREATE PRIVATE ROOM'}</button>
+        <button className="btn secondary" disabled={!name.trim() || busy} onClick={() => submit('hostPublic')}>🌐 &nbsp; HOST A PUBLIC MATCH</button>
+        <div className="join-row"><input className="input" aria-label="Room code" maxLength={6} placeholder="ROOM CODE" value={code} onChange={event => setCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} /><button className="btn secondary" disabled={!name.trim() || code.length < 4 || busy} onClick={() => submit('join')}>JOIN ROOM</button></div>
+        <button className="btn secondary" disabled={!name.trim() || busy} onClick={() => submit('public')}>🌐 &nbsp; FIND A PUBLIC GAME</button>
+      </div>
+      {error && <div role="alert" className="error">{error}</div>}
+      <p className="fine-print">2–8 players · Invite your friends · No real money, just bragging rights</p>
+    </section>
+    <section className="grid features">
+      <article className="card feature"><div className="feature-icon">🇲🇾</div><h3>From pasar malam to KLCC</h3><p className="muted">A fresh board inspired by the places, food and everyday surprises of Malaysia.</p></article>
+      <article className="card feature"><div className="feature-icon">⚡</div><h3>Twenty rounds. Big decisions.</h3><p className="muted">Quick turns, shifting fortunes and a proper finish. No endless board-game night.</p></article>
+      <article className="card feature"><div className="feature-icon">🤝</div><h3>Negotiate. Then kacau.</h3><p className="muted">Swap property, make deals and see who comes out on top.</p></article>
+    </section>
+    <footer className="footer">Built for phones around a table and big screens across the room.</footer>
+  </div></main>;
+}
