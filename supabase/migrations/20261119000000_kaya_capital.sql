@@ -81,6 +81,7 @@ alter table public.game_events enable row level security;
 alter table public.trades enable row level security;
 -- No client table policies: all reads and writes go through the validated server API.
 revoke all on public.rooms,public.players,public.properties,public.game_events,public.trades from public,anon,authenticated;
+grant select on public.rooms,public.players,public.properties,public.game_events,public.trades to service_role;
 
 create or replace function public.kc_create_room(p_name text,p_avatar text,p_public boolean default false,p_shared boolean default false)
 returns jsonb language plpgsql security definer set search_path=public,extensions as $$

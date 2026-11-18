@@ -6,7 +6,7 @@
 
 1. Install Node.js 20+ and a Supabase project.
 2. Copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Keep the service-role key server-only; never use a `NEXT_PUBLIC_` prefix for it.
-3. Run `supabase/schema.sql` in the Supabase SQL editor as project owner. The schema enables RLS, grants no direct client table access, and exposes only validated RPCs to the server's service role.
+3. Run `supabase/schema.sql` in the Supabase SQL editor as project owner. The schema enables RLS, grants no direct client table access, and exposes only validated RPCs to the server's service role. If you already ran an earlier version, run the updated schema again to apply the backend read grants.
 4. Run `npm install` then `npm run dev`, and open `http://localhost:3000`.
 
 The Supabase anon key is not used by the current server-mediated API; it remains in `.env.example` for future client-side Realtime integration. Room state is refreshed through the authenticated same-origin API. A room session token is HttpOnly, stored as a SHA-256 digest in the database, and all trusted game actions execute in database transactions.
